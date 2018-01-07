@@ -1,0 +1,32 @@
+#content {
+    display: grid;
+    grid-template-rows: 40px auto 40px;
+    grid-template-columns: 100px auto 100px;
+}
+
+#canvas{
+    border: 1px solid black;
+    grid-row: 2 / 3;
+    grid-column: 1 / 4;
+    justify-self: center;
+}
+
+#title {
+    grid-row: 1 / 2;
+    grid-column: 2 / 3;
+    justify-self: center;
+}
+
+#prev {
+    grid-row: 3 / 4;
+    grid-column: 1 / 2;
+    white-space: nowrap;
+}
+
+#next {
+    grid-row: 3 / 4;
+    grid-column: 3 / 4;
+    white-space: normal;
+}
+
+
