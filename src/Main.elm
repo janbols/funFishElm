@@ -1,8 +1,10 @@
+import Navigation exposing (program, Location)
 import Html exposing (Html)
 import Html.Attributes as HtmlAtt
 import Html.Events exposing (onClick)
 import Svg exposing (Svg)
-import Svg.Attributes as SvgAtt
+import Svg.Attributes
+import SvgRendering
 import Maybe exposing (Maybe(Just,Nothing))
 import Array exposing (Array)
 import Vector exposing (..)
@@ -17,15 +19,25 @@ import Fishy exposing (hendersonFishShapes)
 import Fishier exposing (fishShapes)
 import Lizard exposing (lizardShapes)
 
-main =  Html.beginnerProgram
-    { model = model
-    , view = view
-    , update = update
-    }
+
+main = program (MoveToPage << pageFromLocation)
+            { init = init
+            , view = view
+            , update = update
+            , subscriptions = (\_ -> Sub.none)
+            }
+
 
 
 
 -- MODEL
+
+type alias Model =
+  { page: Int
+  , title: String
+  , dimensions: (Int,Int)
+  , drawing: (Int, Int) -> List (Shape, Style)
+  }
 
 
 fittedBox: (Int, Int) -> Box
@@ -36,14 +48,6 @@ expandedBox (w,h) = Box (toFloat w / 4.0, toFloat h / 4.0) (toFloat w / 2.0, 0.0
 
 bandBox: (Int, Int) -> Box
 bandBox _ = Box (100.0, 100.0) (3200.0, 0.0) (0.0, 600.0)
-
-
-type alias Model =
-  { page: Int
-  , title: String
-  , dimensions: (Int,Int)
-  , drawing: (Int, Int) -> List (Shape, Style)
-  }
 
 pages: Array (Int -> Model)
 pages = Array.fromList [
@@ -71,30 +75,38 @@ pages = Array.fromList [
         , (\nr -> Model nr "square limit in color" (800,800) (fittedBox >> Lens Brownish >> (LP.squareLimit 3 (createLensPicture fishShapes))))
         ]
 
-getModelFromPage: Int -> Maybe Model
-getModelFromPage page =
+modelFromPage: Int -> Maybe Model
+modelFromPage page =
     let ix = page - 1
     in Maybe.map (\model -> model page) (Array.get ix pages)
 
-model : Maybe Model
-model = getModelFromPage 1
+pageFromLocation: Location -> Int
+pageFromLocation location =
+    case String.toInt (String.dropLeft 1 location.hash) of
+        Ok value -> value
+        Err _ -> 1  --go to page 1 when in doubt
 
+-- INIT
+
+init : Navigation.Location -> ( Maybe Model, Cmd Msg )
+init location =
+  ( modelFromPage <| pageFromLocation location
+  , Cmd.none
+  )
 
 
 -- UPDATE
 
-
 type Msg
-  = ToPage Int
+  = MoveToPage Int
 
-update : Msg -> Maybe Model -> Maybe Model
+update : Msg -> Maybe Model -> (Maybe Model, Cmd Msg)
 update msg inputModel =
   case msg of
-    ToPage newPage -> getModelFromPage newPage
+    MoveToPage newPage -> (modelFromPage newPage, Cmd.none)
 
 
 -- VIEW
-
 
 view : Maybe Model -> Html Msg
 view maybeModel =
@@ -105,9 +117,9 @@ view maybeModel =
                 nextPageNr = model.page + 1
                 (w, h) = model.dimensions
                 svgAttr = [
-                    SvgAtt.width <| toString w
-                    , SvgAtt.height <| toString h ]
-                svgChildren = List.map (toSvg h) (model.drawing model.dimensions)
+                    Svg.Attributes.width <| toString w
+                    , Svg.Attributes.height <| toString h ]
+                svgChildren = List.map (SvgRendering.toSvg h) (model.drawing model.dimensions)
             in
                 Html.div [HtmlAtt.id "content"] ([
                     css "index.css"
@@ -125,83 +137,7 @@ css url = Html.node "link" [ HtmlAtt.rel "stylesheet", HtmlAtt.href url ] []
 pageButton: String -> Int -> Html Msg
 pageButton idName nr =
     let page = "Page " ++ toString(nr)
-    in Html.button [ HtmlAtt.id idName, onClick <| ToPage nr] [ Html.text page ]
+        link = "#" ++ toString(nr)
+    in Html.a [ HtmlAtt.id idName, HtmlAtt.href link] [ Html.text page ]
 
 
-
-toSvg: Int -> (Shape, Style) -> Svg Msg
-toSvg height (shape, style) =
-    let appliedStyle = (toSvgStroke style.stroke) ++ (toSvgFill style.fill)
-
-        adjustVector : Vector -> Vector
-        adjustVector (x,y) = (x, (toFloat height) - y)
-
-        vectorToString: Vector -> String
-        vectorToString (x,y) = toString(round x) ++ "," ++ toString(round y)
-
-        adjustedVectorToString: Vector -> String
-        adjustedVectorToString = vectorToString << adjustVector
-
-        bezierToString: Bezier -> String
-        bezierToString {cp1, cp2, ep} = String.join " " (List.map adjustedVectorToString [cp1, cp2, ep])
-
-    in case shape of
-    Polygon{ps} ->
-        Svg.polygon ([
-            SvgAtt.points (String.join " " (List.map adjustedVectorToString ps))
-        ] ++ appliedStyle) []
-
-    Curve{start, bezier} ->
-        Svg.path ([
-            SvgAtt.d ("M" ++ adjustedVectorToString start ++ " C" ++ bezierToString bezier )
-        ] ++ appliedStyle) []
-
-    Path{start, beziers} ->
-        let bsCoords = String.join " C" (List.map bezierToString beziers)
-        in Svg.path ([
-            SvgAtt.d ("M" ++ adjustedVectorToString start ++ " C" ++ bsCoords )
-        ] ++ appliedStyle) []
-
-    Line{start, end} ->
-        let (sx, sy) = adjustVector start
-            (ex, ey) = adjustVector end
-        in Svg.line ([
-            SvgAtt.x1 (toString sx),
-            SvgAtt.y1 (toString sy),
-            SvgAtt.x2 (toString ex),
-            SvgAtt.y2 (toString ey)
-        ] ++ appliedStyle) []
-
-    Circle{center, radius} ->
-        let (ctrx, ctry) = adjustVector center
-        in Svg.circle ([
-            SvgAtt.cx (toString ctrx),
-            SvgAtt.cy (toString ctry),
-            SvgAtt.r  (toString <| size radius)
-        ] ++ appliedStyle) []
-
-
-
-
-
-toSvgStroke: Maybe StrokeStyle -> List (Svg.Attribute msg)
-toSvgStroke it = case it of
-    Just {width, color} -> [SvgAtt.strokeWidth (toString width), SvgAtt.stroke (toSvgColor color)]
-    Nothing -> []
-
-
-toSvgFill: Maybe FillStyle -> List (Svg.Attribute msg)
-toSvgFill it = case it of
-    Just {color} -> [SvgAtt.fill (toSvgColor color)]
-    Nothing -> [SvgAtt.fill "transparent"]
-
-toSvgColor: StyleColor -> String
-toSvgColor color = case color of
-    Black -> "black"
-    Grey -> "grey"
-    White -> "white"
-    Red -> "orangeRed"
-    Brown -> "tan"
-    Beige -> "beige"
-    Green -> "green"
-    Yellow -> "yellow"
